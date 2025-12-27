@@ -1,0 +1,9 @@
+[package]
+name = "script_formatter"
+version = "1.1.0"
+edition = "2024"
+
+[dependencies]
+docx-rs = "0.4.15"
+regex = "1"        # 用于识别括号
+rfd = "0.16.0"     # Rust File Dialog 用于弹出文件选择对话框

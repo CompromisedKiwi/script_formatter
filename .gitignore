@@ -1,2 +1,6 @@
+# for python
 **/build/
 **/dist/
+
+# for rust
+/target
