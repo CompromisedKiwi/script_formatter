@@ -8,3 +8,6 @@ docx-rs = "0.4.15"
 rfd = "0.16.0"       # Rust File Dialog
 anyhow = "1.0.75"    # Simplify error handling
 lazy-regex = "3.4.2" # Compile-time regex checking
+
+[build-dependencies]
+winres = "0.1.0" # Windows API bindings
