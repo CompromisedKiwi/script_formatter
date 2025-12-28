@@ -33,14 +33,17 @@ impl Formatter {
             let DocumentChild::Paragraph(para) = child else {
                 continue;
             };
+            // Get old spacing
+            let old_spacing = para.property.line_spacing.clone().unwrap_or_default();
             let raw = Self::get_text_with_breaks(&para);
             let lines = raw.split('\n').collect::<Vec<&str>>();
             for line in lines {
                 if line.is_empty() {
-                    new_doc = new_doc.add_paragraph(Paragraph::new());
+                    new_doc =
+                        new_doc.add_paragraph(Paragraph::new().line_spacing(old_spacing.clone()));
                     continue;
                 }
-                let new_para = Self::process_line(line.to_string());
+                let new_para = Self::process_line(line.to_string(), old_spacing.clone());
                 new_doc = new_doc.add_paragraph(new_para);
             }
         }
@@ -99,7 +102,7 @@ impl Formatter {
         full_text
     }
 
-    fn process_line(mut text: String) -> Paragraph {
+    fn process_line(mut text: String, old_spacing: LineSpacing) -> Paragraph {
         // Replace @ with △ in the beginning
         text = text.replace('@', "△");
 
@@ -113,6 +116,9 @@ impl Formatter {
                 .add_run(Run::new().add_text(text))
                 .style("Heading3");
         }
+
+        // Set legacy line spacing
+        new_para = new_para.line_spacing(old_spacing);
 
         // Set 【】 to bold
         if text.starts_with("【") {
