@@ -57,6 +57,29 @@ fn process_files(paths: &[PathBuf]) -> Result<String> {
     Ok(output_paths.join("\n"))
 }
 
+fn get_text_with_breaks(para: &Paragraph) -> String {
+    // Treat soft enter as spliter of paragraph too.
+    // Hard enter which copyed from web could be transformed to soft enter, occasionally.
+    let mut full_text = String::new();
+
+    for child in &para.children {
+        if let ParagraphChild::Run(run) = child {
+            for run_child in &run.children {
+                match run_child {
+                    RunChild::Text(t) => {
+                        full_text.push_str(&t.text);
+                    }
+                    RunChild::Break(_) => {
+                        full_text.push('\n');
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    full_text
+}
+
 fn formatting(input_path: &Path, out_dir: &Path) -> Result<String> {
     // Load doc
     let file_bytes = fs::read(input_path)?;
@@ -74,9 +97,7 @@ fn formatting(input_path: &Path, out_dir: &Path) -> Result<String> {
         let DocumentChild::Paragraph(para) = child else {
             continue;
         };
-        let raw = para.raw_text();
-        // Treat soft enter as spliter of paragraph too.
-        // Hard enter which copyed from web could be transformed to soft enter, occasionally.
+        let raw = get_text_with_breaks(&para);
         let lines = raw.split('\n').collect::<Vec<&str>>();
         for line in lines {
             if line.is_empty() {
@@ -113,7 +134,16 @@ fn process_line(mut text: String) -> Paragraph {
     // Set to Heading3 style
     static RE_HEADING3: &Lazy<Regex> = regex!(r"^(第.*集|人物.*|[0-9].*)$");
     if RE_HEADING3.is_match(&text) {
-        return new_para.add_run(Run::new().add_text(text).style("Heading3"));
+        // 三号 bold
+        return new_para
+            .add_run(Run::new().add_text(text).size(32).bold())
+            .line_spacing(
+                LineSpacing::new()
+                    .before(260) // 13磅
+                    .after(260) // 13磅
+                    .line_rule(LineSpacingType::Auto)
+                    .line(413), // 1.72 * 240
+            );
     }
 
     // Set 【】 to bold
