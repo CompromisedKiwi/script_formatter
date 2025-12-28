@@ -91,6 +91,20 @@ fn formatting(input_path: &Path, out_dir: &Path) -> Result<String> {
         .default_fonts(RunFonts::new().east_asia("宋体").ascii("Times New Roman"))
         .default_size(24); // Unit: half point
 
+    let style_h3 = Style::new("Heading3", StyleType::Paragraph)
+        .name("heading 3")
+        .size(32) // 三号字
+        .bold()
+        .line_spacing(
+            LineSpacing::new()
+                .before(260)
+                .after(260)
+                .line(413)
+                .line_rule(LineSpacingType::Auto),
+        )
+        .fonts(RunFonts::new().east_asia("宋体").ascii("Times New Roman"));
+    new_doc = new_doc.add_style(style_h3);
+
     // Extract lines
     for child in reader.document.children.drain(..) {
         // Process paragraph only
@@ -135,15 +149,18 @@ fn process_line(mut text: String) -> Paragraph {
     static RE_HEADING3: &Lazy<Regex> = regex!(r"^(第.*集|人物.*|[0-9].*)$");
     if RE_HEADING3.is_match(&text) {
         // 三号 bold
+        // return new_para
+        //     .add_run(Run::new().add_text(text).size(32).bold())
+        //     .line_spacing(
+        //         LineSpacing::new()
+        //             .before(260) // 13磅
+        //             .after(260) // 13磅
+        //             .line_rule(LineSpacingType::Auto)
+        //             .line(413), // 1.72 * 240
+        //     );
         return new_para
-            .add_run(Run::new().add_text(text).size(32).bold())
-            .line_spacing(
-                LineSpacing::new()
-                    .before(260) // 13磅
-                    .after(260) // 13磅
-                    .line_rule(LineSpacingType::Auto)
-                    .line(413), // 1.72 * 240
-            );
+            .add_run(Run::new().add_text(text))
+            .style("Heading3");
     }
 
     // Set 【】 to bold
