@@ -37,6 +37,7 @@ impl Formatter {
             let lines = raw.split('\n').collect::<Vec<&str>>();
             for line in lines {
                 if line.is_empty() {
+                    new_doc = new_doc.add_paragraph(Paragraph::new());
                     continue;
                 }
                 let new_para = Self::process_line(line.to_string());
