@@ -11,3 +11,7 @@ lazy-regex = "3.4.2" # Compile-time regex checking
 
 [build-dependencies]
 winres = "0.1.0" # Windows API bindings
+
+[[bin]]
+name = "小牛马-剧本格式化工具"
+path = "src/main.rs"

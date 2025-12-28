@@ -8,7 +8,7 @@ use anyhow::Result;
 use rfd::FileDialog;
 use formatter::Formatter;
 
-const APP_NAME: &str = concat!("🧙‍♂️Script Formatter v", env!("CARGO_PKG_VERSION"));
+const APP_NAME: &str = concat!("🐮小牛马 v", env!("CARGO_PKG_VERSION"));
 
 fn main() {
     // Pick files
