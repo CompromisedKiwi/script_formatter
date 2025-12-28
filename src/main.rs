@@ -1,150 +1,160 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+
 use docx_rs::*;
-use regex::Regex;
+use anyhow::Result;
+use lazy_regex::{Lazy, regex, Regex};
 use rfd::FileDialog;
-use std::fs::File;
-use std::path::Path;
+
+const APP_NAME: &str = concat!("🧙‍♂️Script Formatter v", env!("CARGO_PKG_VERSION"));
 
 fn main() {
-    // 1. 选取文件
-    let file_path = FileDialog::new()
-        .add_filter("Word 文档", &["docx"])
-        .set_title("请选择要标红对话的剧本文件")
-        .pick_file();
+    // Pick files
+    let files_path = FileDialog::new()
+        .add_filter("Word / WPS 文档", &["docx", "doc"])
+        .set_title(&format!(
+            "{APP_NAME} - 请选择要格式化的剧本文件（可选多个）"
+        ))
+        .pick_files();
 
-    if let Some(path) = file_path {
-        match colorize_after_colon(&path, "标红") {
-            Ok(out) => println!("处理完成！已保存至: {}", out),
-            Err(e) => eprintln!("处理失败: {:?}", e),
+    // Process files
+    if let Some(paths) = files_path {
+        match process_files(&paths) {
+            Ok(output_paths) => {
+                create_dialog(&format!("格式化完成！已保存至:\n{}", output_paths)).show();
+            }
+            Err(e) => {
+                create_dialog(&format!("处理失败，请截图上报Bug🐞:\n{e:?}")).show();
+            }
         }
     }
 }
 
-fn colorize_after_colon(
-    input_path: &Path,
-    prefix: &str,
-) -> Result<String, Box<dyn std::error::Error>> {
-    // 读取文档
-    let file = File::open(input_path)?;
-    let mut reader = read_docx(&file)?;
+fn create_dialog(content: &str) -> rfd::MessageDialog {
+    rfd::MessageDialog::new()
+        .set_title(APP_NAME)
+        .set_description(content)
+        .set_buttons(rfd::MessageButtons::Ok)
+}
 
-    // 创建新文档用于存放结果
-    let mut new_doc = Docx::new();
+fn process_files(paths: &[PathBuf]) -> Result<String> {
+    const OUTPUT_DIR_NAME: &str = "已格式化";
 
-    // 初始化正则（处理括号）
-    let re_bracket = Regex::new(r"（[^）]*）")?;
-    // 排除前缀
-    let skip_prefixes = ["【", "△", "人物"];
+    if paths.len() < 1 {
+        return Ok(String::new());
+    }
+    let first_dir = paths[0]
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("无法获取文件目录"))?;
+    let out_dir = first_dir.join(OUTPUT_DIR_NAME);
+    fs::create_dir_all(&out_dir)?;
 
-    // 遍历旧文档中的每一个段落
+    let mut output_paths = Vec::new();
+    for path in paths {
+        let p = formatting(path, &out_dir)?;
+        output_paths.push(p);
+    }
+    Ok(output_paths.join("\n"))
+}
+
+fn formatting(input_path: &Path, out_dir: &Path) -> Result<String> {
+    // Load doc
+    let file_bytes = fs::read(input_path)?;
+    let mut reader = read_docx(&file_bytes)?;
+
+    // New doc
+    // Set default font to 宋体（正文）, size 小四（12磅）
+    let mut new_doc = Docx::new()
+        .default_fonts(RunFonts::new().east_asia("宋体").ascii("Times New Roman"))
+        .default_size(24); // Unit: half point
+
+    // Extract lines
     for child in reader.document.children.drain(..) {
-        if let DocumentChild::Paragraph(para) = child {
-            let mut new_para = Paragraph::new();
-
-            // --- 处理软回车逻辑 ---
-            // 将段落内的所有 Run 合并处理，并识别其中的 Break (Shift+Enter)
-            // 在 docx-rs 中，我们需要手动处理这些 children
-
-            let mut current_line_text = String::new();
-
-            // 我们通过一个临时容器来模拟“行”的分隔
-            // 如果遇到 Break，我们就把之前的文字当做一行处理
-            for run_child in &para.children {
-                match run_child {
-                    ParagraphChild::Run(run) => {
-                        for run_content in &run.children {
-                            match run_content {
-                                RunChild::Text(t) => current_line_text.push_str(&t.text),
-                                RunChild::Break(_) => {
-                                    // 遇到软回车，处理当前积累的文字，并添加一个 Break
-                                    process_line(
-                                        &mut new_para,
-                                        &current_line_text,
-                                        &re_bracket,
-                                        &skip_prefixes,
-                                    );
-                                    new_para = new_para
-                                        .add_run(Run::new().add_break(BreakType::TextWrapping));
-                                    current_line_text.clear();
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-                    _ => {}
-                }
+        // Process paragraph only
+        let DocumentChild::Paragraph(para) = child else {
+            continue;
+        };
+        let raw = para.raw_text();
+        // Treat soft enter as spliter of paragraph too.
+        // Hard enter which copyed from web could be transformed to soft enter, occasionally.
+        let lines = raw.split('\n').collect::<Vec<&str>>();
+        for line in lines {
+            if line.is_empty() {
+                continue;
             }
-
-            // 处理段落最后剩余的文字（或者没有软回车的普通段落）
-            if !current_line_text.is_empty() {
-                process_line(
-                    &mut new_para,
-                    &current_line_text,
-                    &re_bracket,
-                    &skip_prefixes,
-                );
-            }
-
+            let new_para = process_line(line.to_string());
             new_doc = new_doc.add_paragraph(new_para);
         }
     }
 
-    // 保存文件
-    let file_name = input_path.file_name().unwrap().to_str().unwrap();
-    let parent = input_path.parent().unwrap();
-    let output_path = parent.join(format!("{}_{}", prefix, file_name));
-    let out_file = File::create(&output_path)?;
+    // Save new doc
+    let file_name = input_path
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("无法获取文件名"))?
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("文件名包含无效UTF-8字符"))?;
+    let output_path = out_dir.join(file_name);
+    let out_file = fs::File::create(&output_path)?;
     new_doc.build().pack(out_file)?;
 
-    Ok(output_path.to_str().unwrap().to_string())
+    Ok(output_path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("文件名包含无效UTF-8字符"))?
+        .to_string())
 }
 
-/// 处理单行文本逻辑（冒号分割、括号排除、标红）
-fn process_line(para: &mut Paragraph, text: &str, re_bracket: &Regex, skips: &[&str]) {
-    if text.is_empty() {
-        return;
+fn process_line(mut text: String) -> Paragraph {
+    // Replace @ with △ in the beginning
+    text = text.replace('@', "△");
+
+    // Create new paragraph
+    let mut new_para = Paragraph::new();
+
+    // Set to Heading3 style
+    static RE_HEADING3: &Lazy<Regex> = regex!(r"^(第.*集|人物.*|[0-9].*)$");
+    if RE_HEADING3.is_match(&text) {
+        return new_para.add_run(Run::new().add_text(text).style("Heading3"));
     }
 
-    // 1. 检查排除前缀
-    if skips.iter().any(|&s| text.starts_with(s)) {
-        *para = para.clone().add_run(Run::new().add_text(text));
-        return;
+    // Set 【】 to bold
+    if text.starts_with("【") {
+        return new_para.add_run(Run::new().add_text(text).bold());
     }
 
-    // 2. 寻找冒号 (支持中文和英文)
-    let split_pos = text.find('：').or_else(|| text.find(':'));
+    // Now it should only be dialog line
 
-    if let Some(pos) = split_pos {
-        let before = &text[..=pos]; // 包含冒号本身
-        let after = &text[pos + 1..];
+    // find colon
+    text = text.replace(':', "：");
+    let split_pos = text.find('：');
+    let Some(pos) = split_pos else {
+        return new_para.add_run(Run::new().add_text(text));
+    };
 
-        // 添加前半部分（原始格式）
-        *para = para.clone().add_run(Run::new().add_text(before));
+    const COLON_BYTE_LEN: usize = 3;
+    let before = &text[..(pos + COLON_BYTE_LEN)]; // include colon
+    let after = &text[(pos + COLON_BYTE_LEN)..];
+    new_para = new_para.add_run(Run::new().add_text(before));
 
-        // 处理后半部分（括号逻辑）
-        let mut last_end = 0;
-        for mat in re_bracket.find_iter(after) {
-            // 括号前的文字：标红加粗
-            if mat.start() > last_end {
-                let red_text = &after[last_end..mat.start()];
-                *para = para
-                    .clone()
-                    .add_run(Run::new().add_text(red_text).color("FF0000").bold());
-            }
-            // 括号内容：默认格式
-            let bracket_text = mat.as_str();
-            *para = para.clone().add_run(Run::new().add_text(bracket_text));
-            last_end = mat.end();
+    // Content inside brackets stay normal
+    static RE_BRACKET: &Lazy<Regex> = regex!(r"（[^）]*）");
+    let mut last_end = 0;
+    for mat in RE_BRACKET.find_iter(after) {
+        // Text before bracket: red bold
+        if mat.start() > last_end {
+            let red_text = &after[last_end..mat.start()];
+            new_para = new_para.add_run(Run::new().add_text(red_text).color("FF0000").bold());
         }
-
-        // 剩余部分：标红加粗
-        if last_end < after.len() {
-            let remain = &after[last_end..];
-            *para = para
-                .clone()
-                .add_run(Run::new().add_text(remain).color("FF0000").bold());
-        }
-    } else {
-        // 没有冒号，直接添加
-        *para = para.clone().add_run(Run::new().add_text(text));
+        // Text inside bracket: default
+        let bracket_text = mat.as_str();
+        new_para = new_para.add_run(Run::new().add_text(bracket_text));
+        last_end = mat.end();
     }
+
+    // Text after last bracket
+    if last_end < after.len() {
+        let remain = &after[last_end..];
+        new_para = new_para.add_run(Run::new().add_text(remain).color("FF0000").bold());
+    }
+
+    return new_para;
 }
