@@ -110,7 +110,7 @@ impl Formatter {
         let mut new_para = Paragraph::new();
 
         // Set to Heading3 style
-        static RE_HEADING3: &Lazy<Regex> = regex!(r"^(第.*集|人物.*|[0-9].*)$");
+        static RE_HEADING3: &Lazy<Regex> = regex!(r"^(.*第.*集.*|人物.*|[0-9].*)$");
         if RE_HEADING3.is_match(&text) {
             return new_para
                 .add_run(Run::new().add_text(text))
